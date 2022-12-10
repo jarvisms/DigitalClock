@@ -68,8 +68,9 @@ while True:
   textsurface = myfont.render(timetext, True, clr, background)
   #textsurface = myfont.render(timetext, True, clr, (0,0,0))
   textsize = tw, th = textsurface.get_size()
-  pos = ((width-tw)/2, (height-th)/2)  # Centered
-  textrect = screen.blit(textsurface,pos)
+  pos = (int((width-tw)/2), int((height-th)/2))  # Centered
+  textrect = screen.blit(pygame.transform.rotate(textsurface, 180), pos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
+  #textrect = screen.blit(textsurface, pos)
   displayupdate()
   #displayupdate(textrect)
   wait = ( now.replace(microsecond=0) + timedelta(seconds=1) - datetime.now() ).total_seconds()
