@@ -33,13 +33,15 @@ pygame.mouse.set_visible(False)
 screen = pygame.display.set_mode()
 displayupdate = pygame.display.update
 pygame.font.init()
+weatherdata = {'idx':datetime.min, 'temp_out':float("nan")} # Placeholder
 
 upsidedown = False  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
 mqttclient=mqtt.Client("MQTTClientID")  # Unique for the Broker
 _ = mqttclient.connect('MQTTBroker')
-_ = mqttclient.subscribe("/weather/pywws")  # Using pywws MQTT Service
 
-weatherdata = {'idx':datetime.min, 'temp_out':float("nan")} # Placeholder
+def on_connect(client, userdata, flags, rc):
+  """Subscribe on connection. This allows for auto-reconnect to also resubscribe"""
+  client.subscribe("/weather/pywws")  # Using pywws MQTT Service
 
 def on_message(client,userdata,message):
   """When MQTT message containing weather station data arrives, extract the relevent parts, convert them into a sensible format and store them in the global object"""
@@ -47,6 +49,7 @@ def on_message(client,userdata,message):
   payload = json.loads(str(message.payload.decode("utf-8")))
   weatherdata = { 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) }
 
+mqttclient.on_connect = on_connect
 mqttclient.on_message = on_message
 mqttclient.loop_start()
 
@@ -72,19 +75,16 @@ datafont = pygame.font.Font(font, datafontsize)
 clr = [255,0,0]
 i = 0
 inc = 8
-min = -1
 _ = screen.fill((0,0,0))
 
 while True:
   now = datetime.now()
   timetext = now.strftime("%H %M %S") if now.second % 2 else now.strftime("%H:%M:%S") # Colons flash on odd/even seconds
-  if now.minute != min: # Update date and temperature every minute
-    min = now.minute
-    if now - weatherdata['idx'] <= timedelta(minutes=15):
-      temp = weatherdata['temp_out']
-      datatext = f"{temp: > 5,.1f}'C {now:%d/%m/%y}"
-    else:
-      datatext = f"{now:%d/%m/%y}"  # If there is no temperature data (or its too old), just show the date+
+  if now - weatherdata['idx'] <= timedelta(minutes=15):
+    temp = weatherdata['temp_out']
+    datatext = f"{temp: > 5,.1f}'C {now:%d/%m/%y}"
+  else:
+    datatext = f"{now:%d/%m/%y}"  # If there is no temperature data (or its too old), just show the date
   if clr[i] >= 255:
     clr[i] = 256
   clr[i] += inc
