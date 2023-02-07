@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
-import os, pygame, sys, json
-from datetime import datetime, timedelta
+import os, pygame, json
+from datetime import datetime, timedelta, timezone
 from time import sleep
 import paho.mqtt.client as mqtt
 
@@ -53,6 +53,24 @@ mqttclient.on_connect = on_connect
 mqttclient.on_message = on_message
 mqttclient.loop_start()
 
+def colours(idx, step=1):
+  """Given a number idx, returns a RGB colour derived from that number which is repeatable.
+  Step defines how much the RGB values will increment for each increment of the idx.
+  For a given idx and Step, the output is always the same."""
+  idx = int(idx % (1536 / step))  # 256*6=1536 total cycle length of 6 phases
+  halfphase = 256 // step   # 6 half-phases in a full cycle
+  fullphase = 512 // step   # 3 full-phases in a full cycle
+  ud,m = divmod(idx, halfphase)   # ud = up/down direction from whether it's odd or even, m is the 0-255 value in that half-phase
+  if ud % 2:                     # Odd => Down
+    v = min(256 - m * step, 255)  # Counting downwards 255-->0. 256 is replaced with 255
+  else:                          # Even => Up
+    v = min(m * step, 255)        # Counting upwards 0-->255. 256 is replaced with 255
+  colour=[None,None,None]
+  colour[ ( 2+ ud) %3 ] = v   # Rotates 6 times for each cycle, 3 up and 3 down with variable numbers
+  colour[ ( 1- ( idx // fullphase ) ) %3 ] = 0   # Rotates 3 times for each cycle
+  colour[ ( 3- ( (idx + halfphase) // fullphase ) ) %3 ] = 255    # Rotates 3 times for each cycle, but in antiphase, i.e. half-phase out.
+  return colour
+
 # Seems to work on a Raspberry Pi Screen at 800x480 resolution
 font = "digital-7 (mono).ttf"
 timefontsize = 200
@@ -72,9 +90,6 @@ b = datafontsize*(height-th)*0.95/dh   # See what fontsize would fill 95% of the
 datafontsize = int(a if a < b else b) # Take the smaller of the two potential size as an integer
 datafont = pygame.font.Font(font, datafontsize)
 
-clr = [255,0,0]
-i = 0
-inc = 8
 _ = screen.fill((0,0,0))
 
 while True:
@@ -85,17 +100,7 @@ while True:
     datatext = f"{temp: > 5,.1f}'C {now:%d/%m/%y}"
   else:
     datatext = f"{now:%d/%m/%y}"  # If there is no temperature data (or its too old), just show the date
-  if clr[i] >= 255:
-    clr[i] = 256
-  clr[i] += inc
-  if clr[i] >= 255:
-    clr[i] = 255
-    i = (i+1)%3
-    inc = -1 * inc
-  elif clr[i] <= 0:
-    clr[i] = 0
-    i = (i-2)%3
-    inc = -1 * inc
+  clr = colours(now.astimezone(timezone.utc).timestamp(), 8)
   background = (255-clr[0], 255-clr[1], 255-clr[2])
   _ = screen.fill(background)
   timesurface = timefont.render(timetext, True, clr, background)
