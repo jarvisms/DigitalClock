@@ -5,6 +5,35 @@ from datetime import datetime, timedelta, timezone
 from time import sleep
 import paho.mqtt.client as mqtt
 
+def on_connect(client, userdata, flags, rc):
+  """Subscribe on connection. This allows for auto-reconnect to also resubscribe"""
+  client.subscribe("/weather/pywws")  # Using pywws MQTT Service
+
+def on_message(client,userdata,message):
+  """When MQTT message containing weather station data arrives, extract the relevent parts, convert them into a sensible format and store them in the global object"""
+  global weatherdata
+  payload = json.loads(str(message.payload.decode("utf-8")))
+  weatherdata = { 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) }
+
+def colours(idx, step=1):
+  """Given a number idx, returns a RGB colour derived from that number which is repeatable.
+  Step defines how much the RGB values will increment for each increment of the idx.
+  For a given idx and Step, the output is always the same."""
+  idx = int(idx % (1536 / step))  # 256*6=1536 total cycle length of 6 phases
+  halfphase = 256 // step   # 6 half-phases in a full cycle
+  fullphase = 512 // step   # 3 full-phases in a full cycle
+  ud,m = divmod(idx, halfphase)   # ud = up/down direction from whether it's odd or even, m is the 0-255 value in that half-phase
+  if ud % 2:                     # Odd => Down
+    v = min(256 - m * step, 255)  # Counting downwards 255-->0. 256 is replaced with 255
+  else:                          # Even => Up
+    v = min(m * step, 255)        # Counting upwards 0-->255. 256 is replaced with 255
+  colour=[None,None,None]
+  colour[ ( 2+ ud) %3 ] = v   # Rotates 6 times for each cycle, 3 up and 3 down with variable numbers
+  colour[ ( 1- ( idx // fullphase ) ) %3 ] = 0   # Rotates 3 times for each cycle
+  colour[ ( 3- ( (idx + halfphase) // fullphase ) ) %3 ] = 255    # Rotates 3 times for each cycle, but in antiphase, i.e. half-phase out.
+  return colour
+
+upsidedown = False  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
 #drivers = ('X11', 'dga', 'ggi','vgl','aalib','directfb', 'fbcon', 'svgalib')
 drivers = ('directfb', 'fbcon', 'svgalib')
 
@@ -35,41 +64,12 @@ displayupdate = pygame.display.update
 pygame.font.init()
 weatherdata = {'idx':datetime.min, 'temp_out':float("nan")} # Placeholder
 
-upsidedown = False  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
 mqttclient=mqtt.Client("MQTTClientID")  # Unique for the Broker
-_ = mqttclient.connect('MQTTBroker')
-
-def on_connect(client, userdata, flags, rc):
-  """Subscribe on connection. This allows for auto-reconnect to also resubscribe"""
-  client.subscribe("/weather/pywws")  # Using pywws MQTT Service
-
-def on_message(client,userdata,message):
-  """When MQTT message containing weather station data arrives, extract the relevent parts, convert them into a sensible format and store them in the global object"""
-  global weatherdata
-  payload = json.loads(str(message.payload.decode("utf-8")))
-  weatherdata = { 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) }
-
 mqttclient.on_connect = on_connect
 mqttclient.on_message = on_message
+mqttclient.username_pw_set("myusername", "password")
+_ = mqttclient.connect('MQTTBroker')
 mqttclient.loop_start()
-
-def colours(idx, step=1):
-  """Given a number idx, returns a RGB colour derived from that number which is repeatable.
-  Step defines how much the RGB values will increment for each increment of the idx.
-  For a given idx and Step, the output is always the same."""
-  idx = int(idx % (1536 / step))  # 256*6=1536 total cycle length of 6 phases
-  halfphase = 256 // step   # 6 half-phases in a full cycle
-  fullphase = 512 // step   # 3 full-phases in a full cycle
-  ud,m = divmod(idx, halfphase)   # ud = up/down direction from whether it's odd or even, m is the 0-255 value in that half-phase
-  if ud % 2:                     # Odd => Down
-    v = min(256 - m * step, 255)  # Counting downwards 255-->0. 256 is replaced with 255
-  else:                          # Even => Up
-    v = min(m * step, 255)        # Counting upwards 0-->255. 256 is replaced with 255
-  colour=[None,None,None]
-  colour[ ( 2+ ud) %3 ] = v   # Rotates 6 times for each cycle, 3 up and 3 down with variable numbers
-  colour[ ( 1- ( idx // fullphase ) ) %3 ] = 0   # Rotates 3 times for each cycle
-  colour[ ( 3- ( (idx + halfphase) // fullphase ) ) %3 ] = 255    # Rotates 3 times for each cycle, but in antiphase, i.e. half-phase out.
-  return colour
 
 # Seems to work on a Raspberry Pi Screen at 800x480 resolution
 font = "digital-7 (mono).ttf"
