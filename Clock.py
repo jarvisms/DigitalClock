@@ -3,11 +3,13 @@
 import os, pygame, json
 from datetime import datetime, timedelta, timezone
 from time import sleep
+from os.path import join, dirname, abspath
+from configparser import ConfigParser
 import paho.mqtt.client as mqtt
 
 def on_connect(client, userdata, flags, rc):
   """Subscribe on connection. This allows for auto-reconnect to also resubscribe"""
-  client.subscribe("/weather/pywws")  # Using pywws MQTT Service
+  client.subscribe(cfg.get('MQTT','Topic',fallback='/weather/pywws'))  # Using pywws MQTT Service
 
 def on_message(client,userdata,message):
   """When MQTT message containing weather station data arrives, extract the relevent parts, convert them into a sensible format and store them in the global object"""
@@ -33,7 +35,9 @@ def colours(idx, step=1):
   colour[ ( 3- ( (idx + halfphase) // fullphase ) ) %3 ] = 255    # Rotates 3 times for each cycle, but in antiphase, i.e. half-phase out.
   return colour
 
-upsidedown = False  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
+cfg = ConfigParser()
+cfg.read( join( dirname(abspath(__file__)), "Clock.cfg" ))
+upsidedown = cfg.getboolean('DEFAULT','upsidedown', fallback=False)  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
 #drivers = ('X11', 'dga', 'ggi','vgl','aalib','directfb', 'fbcon', 'svgalib')
 drivers = ('directfb', 'fbcon', 'svgalib')
 
@@ -64,15 +68,15 @@ displayupdate = pygame.display.update
 pygame.font.init()
 weatherdata = {'idx':datetime.min, 'temp_out':float("nan")} # Placeholder
 
-mqttclient=mqtt.Client("MQTTClientID")  # Unique for the Broker
+mqttclient=mqtt.Client(cfg.get('MQTT','clientid', fallback=None))  # Unique for the Broker
 mqttclient.on_connect = on_connect
 mqttclient.on_message = on_message
-mqttclient.username_pw_set("myusername", "password")
-_ = mqttclient.connect('MQTTBroker')
+mqttclient.username_pw_set(cfg.get('MQTT','username', fallback=None),cfg.get('MQTT','password', fallback=None))
+_ = mqttclient.connect(cfg.get('MQTT','broker'))
 mqttclient.loop_start()
 
 # Seems to work on a Raspberry Pi Screen at 800x480 resolution
-font = "digital-7 (mono).ttf"
+font = cfg.get('DEFAULT','font', fallback='digital-7 (mono).ttf')
 timefontsize = 200
 timefont = pygame.font.Font(font, timefontsize)
 tw, th = timefont.size("23:59:59")  # Get size of the rendered time at current fontsize
