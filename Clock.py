@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import os, pygame, json
+import os, pygame, json, signal
 from datetime import datetime, timedelta, timezone
 from time import sleep
 from os.path import join, dirname, abspath
@@ -35,6 +35,14 @@ def colours(idx, step=1):
   colour[ ( 3- ( (idx + halfphase) // fullphase ) ) %3 ] = 255    # Rotates 3 times for each cycle, but in antiphase, i.e. half-phase out.
   return colour
 
+def quitter(signum, frame):
+  global run
+  print(f"Signal handler called with signal {signum} - {signal.Signals(signum).name}")
+  run = False
+
+run = True
+signal.signal(signal.SIGINT, quitter)
+signal.signal(signal.SIGTERM, quitter)
 cfg = ConfigParser()
 cfg.read( join( dirname(abspath(__file__)), "Clock.cfg" ))
 upsidedown = cfg.getboolean('DEFAULT','upsidedown', fallback=False)  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
@@ -96,7 +104,7 @@ datafont = pygame.font.Font(font, datafontsize)
 
 _ = screen.fill((0,0,0))
 
-while True:
+while run:
   now = datetime.now()
   timetext = now.strftime("%H %M %S") if now.second % 2 else now.strftime("%H:%M:%S") # Colons flash on odd/even seconds
   if now - weatherdata['idx'] <= timedelta(minutes=15):
