@@ -9,13 +9,29 @@ import paho.mqtt.client as mqtt
 
 def on_connect(client, userdata, flags, rc):
   """Subscribe on connection. This allows for auto-reconnect to also resubscribe"""
-  client.subscribe(cfg.get('MQTT','Topic',fallback='/weather/pywws'))  # Using pywws MQTT Service
+  client.subscribe([(energytopic + "/#",0),(weathertopic,0)])  # Using pywws and glowmarkt glow IHD/CAD MQTT Services
 
 def on_message(client,userdata,message):
-  """When MQTT message containing weather station data arrives, extract the relevent parts, convert them into a sensible format and store them in the global object"""
-  global weatherdata
+  """When MQTT messages containing energy or weather data arrives, store them in the global object"""
+  global data
   payload = json.loads(str(message.payload.decode("utf-8")))
-  weatherdata = { 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) }
+  if message.topic == weathertopic:
+    data['weather'].update({ 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) })
+  elif message.topic.startswith(energytopic):
+    for u in payload.keys() & ("electricitymeter","gasmeter"):
+      ci = payload[u]["energy"]["import"]["cumulative"]
+      ts = datetime.fromisoformat(payload[u]["timestamp"].removesuffix("Z")).replace(tzinfo=None)
+      if ( ci is not None ) and ( ci != data[u]["cumulative"] ):
+        data[u]["previouscumulative"] = data[u]["cumulative"]
+        data[u]["previoustimestamp"] = data[u]["timestamp"]
+      data[u]["cumulative"] = ci
+      data[u]["timestamp"] = ts
+      if "power" in payload[u]:
+        data[u]["power"] = payload[u]["power"]["value"]
+      elif (dt := (data[u]["timestamp"] - data[u]["previoustimestamp"]).total_seconds()) <= 300:
+        data[u]["power"] = 3600*(data[u]["cumulative"] - data[u]["previouscumulative"]) / dt
+      else:
+        data[u]["power"] = 0
 
 def colours(idx, step=1):
   """Given a number idx, returns a RGB colour derived from that number which is repeatable.
@@ -45,6 +61,8 @@ signal.signal(signal.SIGINT, quitter)
 signal.signal(signal.SIGTERM, quitter)
 cfg = ConfigParser()
 cfg.read( join( dirname(abspath(__file__)), "Clock.cfg" ))
+weathertopic = cfg.get('MQTT','WeatherTopic',fallback='/weather/pywws')
+energytopic = cfg.get('MQTT','EnergyTopic',fallback='/glow/')
 upsidedown = cfg.getboolean('DEFAULT','upsidedown', fallback=False)  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
 #drivers = ('X11', 'dga', 'ggi','vgl','aalib','directfb', 'fbcon', 'svgalib')
 drivers = ('directfb', 'fbcon', 'svgalib')
@@ -67,6 +85,9 @@ for driver in drivers:
 
 if not found:
   raise Exception('No suitable video driver found.')
+
+data = { u: { "timestamp":datetime.min, "cumulative":float("nan"), "previoustimestamp": datetime.min, "previouscumulative":float("nan"), "power":0.0} for u in ("electricitymeter","gasmeter")}
+data.update( { "weather": { 'idx': datetime.min, 'temp_out': float("nan") }})
 
 displayinfo = pygame.display.Info()
 width, height = (displayinfo.current_w, displayinfo.current_h)
@@ -96,9 +117,10 @@ timefont = pygame.font.Font(font, timefontsize)
 tw, th = timefont.size("23:59:59")  # Get size of the rendered time at current fontsize
 datafontsize = 200
 datafont = pygame.font.Font(font, datafontsize)
-dw, dh = datafont.size("-88.8'C 88/88/88")  # Get size of the rendered time at current fontsize
-a = datafontsize*width*0.95/dw    # See what fontsize would fill 95% of the screen width
-b = datafontsize*(height-th)*0.95/dh   # See what fontsize would fill 95% of the screen height with the time
+dw, dh = datafont.size("-88.8'C 88/88/88")  # Get size of the rendered weather data and date at current fontsize
+ew, eh=  datafont.size("88,888W 88,888W")  # Get size of the rendered energy data at current fontsize
+a = datafontsize*width*0.95/max(dw,ew)    # See what fontsize would fill 95% of the screen width
+b = datafontsize*(height-th)*0.95/(dh+eh)   # See what fontsize would fill 95% of the screen height with the time
 datafontsize = int(a if a < b else b) # Take the smaller of the two potential size as an integer
 datafont = pygame.font.Font(font, datafontsize)
 
@@ -107,29 +129,46 @@ _ = screen.fill((0,0,0))
 while run:
   now = datetime.now()
   timetext = now.strftime("%H %M %S") if now.second % 2 else now.strftime("%H:%M:%S") # Colons flash on odd/even seconds
-  if now - weatherdata['idx'] <= timedelta(minutes=15):
-    temp = weatherdata['temp_out']
+  if now - data['weather']['idx'] <= timedelta(minutes=15):
+    temp = data['weather']['temp_out']
     datatext = f"{temp: > 5,.1f}'C {now:%d/%m/%y}"
   else:
     datatext = f"{now:%d/%m/%y}"  # If there is no temperature data (or its too old), just show the date
+  if now - data['electricitymeter']['timestamp'] <= timedelta(minutes=15):
+    elec = data['electricitymeter']['power']*1000
+    electext = f"{elec: >5,.0f}W "
+  else:
+    electext = "        "  # If there is no elec data (or its too old), just show a blank space
+  if now - data['gasmeter']['timestamp'] <= timedelta(minutes=15):
+    gas = data['gasmeter']['power']*1000
+    gastext = f" {gas: >5,.0f}W"
+  else:
+    gastext = "        "  # If there is no gas data (or its too old), just show a blank space
+  energytext = electext+gastext
   clr = colours(now.astimezone(timezone.utc).timestamp(), 8)
   background = (255-clr[0], 255-clr[1], 255-clr[2])
   _ = screen.fill(background)
   timesurface = timefont.render(timetext, True, clr, background)
   datasurface = datafont.render(datatext, True, clr, background)
+  energysurface = datafont.render(energytext, True, clr, background)
   textsize = tw, th = timesurface.get_size()
   datasize = dw, dh = datasurface.get_size()
-  gap = int( (height-th-dh)/3 )  # The total gap evenly split between top, bottom and between the text
+  energysize = ew, eh = energysurface.get_size()
+  gap = int( (height-th-dh-eh)/3 )  # The total gap evenly split between top, bottom and between the text
   if upsidedown:
-    tpos = (int((width-tw)/2), 2*gap + dh)  # Centered Time on first line, but time has coordinates below data due to rotation
-    dpos = (int((width-dw)/2), gap)  # Centered Data on second line, but data has coordinates above time due to rotation
+    tpos = (int((width-tw)/2), 2*gap + dh + eh)  # Centered Time on first line, but time has coordinates below data due to rotation
+    dpos = (int((width-dw)/2), gap + eh)  # Centered Data on second line, but data has coordinates above time due to rotation
+    epos = (int((width-ew)/2), gap)  # Centered Data on third line, but energy has coordinates above time due to rotation
     timerect = screen.blit(pygame.transform.rotate(timesurface, 180), tpos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
     datarect = screen.blit(pygame.transform.rotate(datasurface, 180), dpos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
+    energyrect = screen.blit(pygame.transform.rotate(energysurface, 180), epos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
   else:
     tpos = (int((width-tw)/2), gap)  # Centered Time on first line
     dpos = (int((width-dw)/2), 2*gap + th)  # Centered Data on second line
+    epos = (int((width-ew)/2), 2*gap + th + dh)  # Centered Data on third line
     timerect = screen.blit(timesurface, tpos)
     datarect = screen.blit(datasurface, dpos)
+    energyrect = screen.blit(energysurface, epos)
   displayupdate()
   wait = ( now.replace(microsecond=0) + timedelta(seconds=1) - datetime.now() ).total_seconds()
   sleep(wait if wait > 0 else 0)
