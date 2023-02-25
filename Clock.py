@@ -15,17 +15,18 @@ def on_message(client,userdata,message):
   """When MQTT messages containing energy or weather data arrives, store them in the global object"""
   global data
   payload = json.loads(str(message.payload.decode("utf-8")))
-  if message.topic == weathertopic:
+  if message.topic == weathertopic and 'temp_out' in payload:
     data['weather'].update({ 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) })
   elif message.topic.startswith(energytopic):
     for u in payload.keys() & ("electricitymeter","gasmeter"):
       ci = payload[u]["energy"]["import"]["cumulative"]
       ts = datetime.fromisoformat(payload[u]["timestamp"].removesuffix("Z")).replace(tzinfo=None)
-      if ( ci is not None ) and ( ci != data[u]["cumulative"] ):
-        data[u]["previouscumulative"] = data[u]["cumulative"]
-        data[u]["previoustimestamp"] = data[u]["timestamp"]
-      data[u]["cumulative"] = ci
-      data[u]["timestamp"] = ts
+      if ( ci is not None ):
+        if ( ci != data[u]["cumulative"] ):
+          data[u]["previouscumulative"] = data[u]["cumulative"]
+          data[u]["previoustimestamp"] = data[u]["timestamp"]
+        data[u]["cumulative"] = ci
+        data[u]["timestamp"] = ts
       if "power" in payload[u]:
         data[u]["power"] = payload[u]["power"]["value"]
       elif (dt := (data[u]["timestamp"] - data[u]["previoustimestamp"]).total_seconds()) <= 300:
