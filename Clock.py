@@ -16,23 +16,23 @@ def on_message(client,userdata,message):
   global data
   payload = json.loads(str(message.payload.decode("utf-8")))
   if message.topic == weathertopic and 'temp_out' in payload:
-    data['weather'].update({ 'idx': datetime.fromisoformat(payload['idx']), 'temp_out': float(payload['temp_out']) })
+    data['weather'].update({ 'idx': datetime.fromisoformat(payload['idx']).replace(tzinfo=timezone.utc), 'temp_out': float(payload['temp_out']) })
   elif message.topic.startswith(energytopic):
     for u in payload.keys() & ("electricitymeter","gasmeter"):
       ci = payload[u]["energy"]["import"]["cumulative"]
-      ts = datetime.fromisoformat(payload[u]["timestamp"].removesuffix("Z")).replace(tzinfo=None)
-      if ( ci is not None ):
-        if ( ci != data[u]["cumulative"] ):
-          data[u]["previouscumulative"] = data[u]["cumulative"]
-          data[u]["previoustimestamp"] = data[u]["timestamp"]
+      ts = datetime.fromisoformat(payload[u]["timestamp"].replace("Z","+00:00"))
+      if ( ci is not None ) and ( ci != data[u]["cumulative"] ):
+        data[u]["previouscumulative"] = data[u]["cumulative"]
+        data[u]["previoustimestamp"] = data[u]["timestamp"]
         data[u]["cumulative"] = ci
         data[u]["timestamp"] = ts
       if "power" in payload[u]:
         data[u]["power"] = payload[u]["power"]["value"]
-      elif (dt := (data[u]["timestamp"] - data[u]["previoustimestamp"]).total_seconds()) <= 300:
+      elif (ts-data[u]["timestamp"]).total_seconds() <= 120 and (dt := (data[u]["timestamp"] - data[u]["previoustimestamp"]).total_seconds()) <= 120:
         data[u]["power"] = 3600*(data[u]["cumulative"] - data[u]["previouscumulative"]) / dt
       else:
         data[u]["power"] = 0
+        data[u]["timestamp"] = ts
 
 def colours(idx, step=1):
   """Given a number idx, returns a RGB colour derived from that number which is repeatable.
@@ -87,8 +87,8 @@ for driver in drivers:
 if not found:
   raise Exception('No suitable video driver found.')
 
-data = { u: { "timestamp":datetime.min, "cumulative":float("nan"), "previoustimestamp": datetime.min, "previouscumulative":float("nan"), "power":0.0} for u in ("electricitymeter","gasmeter")}
-data.update( { "weather": { 'idx': datetime.min, 'temp_out': float("nan") }})
+data = { u: { "timestamp":datetime.min.replace(tzinfo=timezone.utc), "cumulative":float("nan"), "previoustimestamp": datetime.min.replace(tzinfo=timezone.utc), "previouscumulative":float("nan"), "power":0.0} for u in ("electricitymeter","gasmeter")}
+data.update( { "weather": { 'idx': datetime.min.replace(tzinfo=timezone.utc), 'temp_out': float("nan") }})
 
 displayinfo = pygame.display.Info()
 width, height = (displayinfo.current_w, displayinfo.current_h)
@@ -128,8 +128,8 @@ datafont = pygame.font.Font(font, datafontsize)
 _ = screen.fill((0,0,0))
 
 while run:
-  now = datetime.now()
-  timetext = now.strftime("%H %M %S") if now.second % 2 else now.strftime("%H:%M:%S") # Colons flash on odd/even seconds
+  now = datetime.now(tz=timezone.utc)
+  timetext = now.astimezone().strftime("%H %M %S") if now.second % 2 else now.astimezone().strftime("%H:%M:%S") # Colons flash on odd/even seconds
   if now - data['weather']['idx'] <= timedelta(minutes=15):
     temp = data['weather']['temp_out']
     datatext = f"{temp: > 5,.1f}'C {now:%d/%m/%y}"
@@ -146,7 +146,7 @@ while run:
   else:
     gastext = "        "  # If there is no gas data (or its too old), just show a blank space
   energytext = electext+gastext
-  clr = colours(now.astimezone(timezone.utc).timestamp(), 8)
+  clr = colours(now.timestamp(), 8)
   background = (255-clr[0], 255-clr[1], 255-clr[2])
   _ = screen.fill(background)
   timesurface = timefont.render(timetext, True, clr, background)
@@ -171,7 +171,7 @@ while run:
     datarect = screen.blit(datasurface, dpos)
     energyrect = screen.blit(energysurface, epos)
   displayupdate()
-  wait = ( now.replace(microsecond=0) + timedelta(seconds=1) - datetime.now() ).total_seconds()
+  wait = ( now.replace(microsecond=0) + timedelta(seconds=1) - datetime.now(tz=timezone.utc) ).total_seconds()
   sleep(wait if wait > 0 else 0)
 
 mqttclient.loop_stop()
