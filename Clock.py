@@ -82,18 +82,22 @@ for driver in drivers:
     print(f"{driver} Failed")
     continue
   found = True
+  pygame.mouse.set_visible(False)
+  screen = pygame.display.set_mode()
   break
 
 if not found:
-  raise Exception('No suitable video driver found.')
+  #raise Exception('No suitable video driver found.')
+  os.unsetenv('SDL_VIDEODRIVER')
+  pygame.display.init()
+  pygame.display.set_caption('Clock')
+  screen = pygame.display.set_mode((800, 480))
 
 data = { u: { "timestamp":datetime.min.replace(tzinfo=timezone.utc), "cumulative":float("nan"), "previoustimestamp": datetime.min.replace(tzinfo=timezone.utc), "previouscumulative":float("nan"), "power":0.0} for u in ("electricitymeter","gasmeter")}
 data.update( { "weather": { 'idx': datetime.min.replace(tzinfo=timezone.utc), 'temp_out': float("nan") }})
 
 displayinfo = pygame.display.Info()
 width, height = (displayinfo.current_w, displayinfo.current_h)
-pygame.mouse.set_visible(False)
-screen = pygame.display.set_mode()
 displayupdate = pygame.display.update
 pygame.font.init()
 weatherdata = {'idx':datetime.min, 'temp_out':float("nan")} # Placeholder
@@ -128,6 +132,9 @@ datafont = pygame.font.Font(font, datafontsize)
 _ = screen.fill((0,0,0))
 
 while run:
+  for event in pygame.event.get():
+    if event.type == pygame.QUIT:
+        quit()
   now = datetime.now(tz=timezone.utc)
   timetext = now.astimezone().strftime("%H %M %S") if now.second % 2 else now.astimezone().strftime("%H:%M:%S") # Colons flash on odd/even seconds
   if now - data['weather']['idx'] <= timedelta(minutes=15):
