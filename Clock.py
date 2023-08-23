@@ -7,6 +7,28 @@ from os.path import join, dirname, abspath
 from configparser import ConfigParser
 import paho.mqtt.client as mqtt
 
+def preparefonts():
+  """Prepares the time and data fonts at the appropriate size to fit the screen"""
+  # Seems to work on a Raspberry Pi Screen at 800x480 resolution
+  font = cfg.get('DEFAULT','font', fallback='digital-7 (mono).ttf')
+  fontsize = 200
+  timefont = pygame.font.Font(font, fontsize)
+  tw, th = timefont.size("23:59:59")  # Get size of the rendered time at current fontsize
+  a = fontsize*width*0.95/tw    # See what fontsize would fill 95% of the screen width
+  b = fontsize*height*0.95/th   # See what fontsize would fill 95% of the screen height (This takes priority)
+  fontsize = int(a if a < b else b) # Take the smaller of the two potential size as an integer
+  tw, th = timefont.size("23:59:59")  # Get size again for use in calcs for datafont size
+  timefont = pygame.font.Font(font, fontsize)
+  fontsize = 200
+  datafont = pygame.font.Font(font, fontsize)
+  dw, dh = datafont.size("-88.8'C 88/88/88")  # Get size of the rendered weather data and date at current fontsize
+  ew, eh=  datafont.size("88,888W 88,888W")  # Get size of the rendered energy data at current fontsize
+  a = fontsize*width*0.95/max(dw,ew)    # See what fontsize would fill 95% of the screen width
+  b = fontsize*(height-th)*0.95/(dh+eh)   # See what fontsize would fill 95% of the screen height with the time
+  fontsize = int(a if a < b else b) # Take the smaller of the two potential size as an integer
+  datafont = pygame.font.Font(font, fontsize)
+  return timefont, datafont
+
 def on_connect(client, userdata, flags, rc):
   """Subscribe on connection. This allows for auto-reconnect to also resubscribe"""
   client.subscribe([(energytopic + "/#",0),(weathertopic,0)])  # Using pywws and glowmarkt glow IHD/CAD MQTT Services
@@ -65,7 +87,6 @@ cfg.read( join( dirname(abspath(__file__)), "Clock.cfg" ))
 weathertopic = cfg.get('MQTT','WeatherTopic',fallback='/weather/pywws')
 energytopic = cfg.get('MQTT','EnergyTopic',fallback='/glow/')
 upsidedown = cfg.getboolean('DEFAULT','upsidedown', fallback=False)  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
-#drivers = ('X11', 'dga', 'ggi','vgl','aalib','directfb', 'fbcon', 'svgalib')
 drivers = ('directfb', 'fbcon', 'svgalib')
 
 os.putenv('SDL_FBDEV','/dev/fb0')
@@ -87,19 +108,19 @@ for driver in drivers:
   break
 
 if not found:
-  #raise Exception('No suitable video driver found.')
   os.unsetenv('SDL_VIDEODRIVER')
   pygame.display.init()
+  print(f"Not using frame buffer")
   pygame.display.set_caption('Clock')
-  screen = pygame.display.set_mode((800, 480))
+  screen = pygame.display.set_mode((800, 480), pygame.RESIZABLE)
+
+width, height = screen.get_size()
+pygame.event.set_blocked(None)  # Ignore all events
+pygame.event.set_allowed(pygame.QUIT) # Only pay attention to the QUIT event
+pygame.event.set_allowed(pygame.VIDEORESIZE) # ...and pay attention to the VIDEORESIZE event
 
 data = { u: { "timestamp":datetime.min.replace(tzinfo=timezone.utc), "cumulative":float("nan"), "previoustimestamp": datetime.min.replace(tzinfo=timezone.utc), "previouscumulative":float("nan"), "power":0.0} for u in ("electricitymeter","gasmeter")}
 data.update( { "weather": { 'idx': datetime.min.replace(tzinfo=timezone.utc), 'temp_out': float("nan") }})
-
-displayinfo = pygame.display.Info()
-width, height = (displayinfo.current_w, displayinfo.current_h)
-displayupdate = pygame.display.update
-pygame.font.init()
 weatherdata = {'idx':datetime.min, 'temp_out':float("nan")} # Placeholder
 
 mqttclient=mqtt.Client(cfg.get('MQTT','clientid', fallback=None))  # Unique for the Broker
@@ -109,32 +130,19 @@ mqttclient.username_pw_set(cfg.get('MQTT','username', fallback=None),cfg.get('MQ
 _ = mqttclient.connect(cfg.get('MQTT','broker'))
 mqttclient.loop_start()
 
-# Seems to work on a Raspberry Pi Screen at 800x480 resolution
-font = cfg.get('DEFAULT','font', fallback='digital-7 (mono).ttf')
-timefontsize = 200
-timefont = pygame.font.Font(font, timefontsize)
-tw, th = timefont.size("23:59:59")  # Get size of the rendered time at current fontsize
-a = timefontsize*width*0.95/tw    # See what fontsize would fill 95% of the screen width
-b = timefontsize*height*0.95/th   # See what fontsize would fill 95% of the screen height (This takes priority)
-timefontsize = int(a if a < b else b) # Take the smaller of the two potential size as an integer
-timefont = pygame.font.Font(font, timefontsize)
-
-tw, th = timefont.size("23:59:59")  # Get size of the rendered time at current fontsize
-datafontsize = 200
-datafont = pygame.font.Font(font, datafontsize)
-dw, dh = datafont.size("-88.8'C 88/88/88")  # Get size of the rendered weather data and date at current fontsize
-ew, eh=  datafont.size("88,888W 88,888W")  # Get size of the rendered energy data at current fontsize
-a = datafontsize*width*0.95/max(dw,ew)    # See what fontsize would fill 95% of the screen width
-b = datafontsize*(height-th)*0.95/(dh+eh)   # See what fontsize would fill 95% of the screen height with the time
-datafontsize = int(a if a < b else b) # Take the smaller of the two potential size as an integer
-datafont = pygame.font.Font(font, datafontsize)
-
+pygame.font.init()
+timefont, datafont = preparefonts()
 _ = screen.fill((0,0,0))
 
 while run:
   for event in pygame.event.get():
     if event.type == pygame.QUIT:
         quit()
+    if event.type == pygame.VIDEORESIZE: # Check for window resizing
+      print(f"Resize: {event.w} x {event.h}")
+      screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+      width, height = event.w, event.h
+      timefont, datafont = preparefonts()
   now = datetime.now(tz=timezone.utc)
   timetext = now.astimezone().strftime("%H %M %S") if now.second % 2 else now.astimezone().strftime("%H:%M:%S") # Colons flash on odd/even seconds
   if now - data['weather']['idx'] <= timedelta(minutes=15):
@@ -177,7 +185,7 @@ while run:
     dpos = (int((width-dw)/2), 2*gap + th)  # Centered Data on second line
     epos = (int((width-ew)/2), 2*gap + th + dh)  # Centered Data on third line
     screen.blits(( (timesurface, tpos), (datasurface, dpos), (energysurface, epos) ))
-  displayupdate()
+  pygame.display.update()
   wait = ( now.replace(microsecond=0) + timedelta(seconds=1) - datetime.now(tz=timezone.utc) ).total_seconds()
   sleep(wait if wait > 0 else 0)
 
