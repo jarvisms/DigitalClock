@@ -167,16 +167,16 @@ while run:
     tpos = (int((width-tw)/2), 2*gap + dh + eh)  # Centered Time on first line, but time has coordinates below data due to rotation
     dpos = (int((width-dw)/2), gap + eh)  # Centered Data on second line, but data has coordinates above time due to rotation
     epos = (int((width-ew)/2), gap)  # Centered Data on third line, but energy has coordinates above time due to rotation
-    timerect = screen.blit(pygame.transform.rotate(timesurface, 180), tpos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
-    datarect = screen.blit(pygame.transform.rotate(datasurface, 180), dpos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
-    energyrect = screen.blit(pygame.transform.rotate(energysurface, 180), epos) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
+    screen.blits((
+        (pygame.transform.rotate(timesurface, 180), tpos),
+        (pygame.transform.rotate(datasurface, 180), dpos),
+        (pygame.transform.rotate(energysurface, 180), epos),
+      )) # 180 Rotation for Raspberry Pi Screen in Pimoroni mount
   else:
     tpos = (int((width-tw)/2), gap)  # Centered Time on first line
     dpos = (int((width-dw)/2), 2*gap + th)  # Centered Data on second line
     epos = (int((width-ew)/2), 2*gap + th + dh)  # Centered Data on third line
-    timerect = screen.blit(timesurface, tpos)
-    datarect = screen.blit(datasurface, dpos)
-    energyrect = screen.blit(energysurface, epos)
+    screen.blits(( (timesurface, tpos), (datasurface, dpos), (energysurface, epos) ))
   displayupdate()
   wait = ( now.replace(microsecond=0) + timedelta(seconds=1) - datetime.now(tz=timezone.utc) ).total_seconds()
   sleep(wait if wait > 0 else 0)
