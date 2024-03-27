@@ -87,7 +87,7 @@ cfg.read( join( dirname(abspath(__file__)), "Clock.cfg" ))
 weathertopic = cfg.get('MQTT','WeatherTopic',fallback='/weather/pywws')
 energytopic = cfg.get('MQTT','EnergyTopic',fallback='/glow/')
 upsidedown = cfg.getboolean('DEFAULT','upsidedown', fallback=False)  # Set this to True to rotate everything - useful for the Pimoroni Screen Mount
-drivers = ('directfb', 'fbcon', 'svgalib')
+drivers = ('KMSDRM', 'directfb', 'fbcon', 'svgalib')
 
 os.putenv('SDL_FBDEV','/dev/fb0')
 os.environ["SDL_FBDEV"] = "/dev/fb0"
