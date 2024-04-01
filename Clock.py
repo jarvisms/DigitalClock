@@ -147,9 +147,9 @@ while run:
   timetext = now.astimezone().strftime("%H %M %S") if now.second % 2 else now.astimezone().strftime("%H:%M:%S") # Colons flash on odd/even seconds
   if now - data['weather']['idx'] <= timedelta(minutes=15):
     temp = data['weather']['temp_out']
-    datatext = f"{temp: > 5,.1f}'C {now:%d/%m/%y}"
+    datatext = f"{temp: > 5,.1f}'C {now.astimezone():%d/%m/%y}"
   else:
-    datatext = f"{now:%d/%m/%y}"  # If there is no temperature data (or its too old), just show the date
+    datatext = f"{now.astimezone():%d/%m/%y}"  # If there is no temperature data (or its too old), just show the date
   if now - data['electricitymeter']['timestamp'] <= timedelta(minutes=15):
     elec = data['electricitymeter']['power']*1000
     electext = f"{elec: >5,.0f}W "
